@@ -2,7 +2,7 @@ close all
 clear all
 clc
 
-work_dir = 'C:\Users\physio\Documents\Code\ECoG_Data_preprocessing_matlab';
+work_dir = '\\bigdata\Science\Med\Physiology\PTN\Students\Yasmine\IC_stroke_decoder\ECoG_alignment';
 addpath(fullfile(work_dir,'function'));  % others
 D_i = NR_Palette;
 monkey_dir = 'Lilo';
