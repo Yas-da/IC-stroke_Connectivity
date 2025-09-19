@@ -43,12 +43,13 @@ for s = 1:length(all_sessions)
 
         %time_range computation from Vicon
         if ~isempty(kinematic.x)
-            tsViconCorr = startViconNSP/sampleRate + (1:length(kinematic.x(:,1)))/kinematic.framerate;
+            tsViconCorr = startViconNSP/sampleRate + (1:size(kinematic.x,1))/kinematic.framerate;
             time_range = [tsViconCorr(1) tsViconCorr(end)];
         else
             % fallback sur durée totale ECoG
             nrSamples = length(data(1).Data(1,:));
-            time_range = [0 nrSamples/sampleRate];
+            tsViconCorr = (0:nrSamples-1)/sampleRate;
+            time_range = [tsViconCorr(1) tsViconCorr(end)];
         end
         
         for ar = 1:length(data)
@@ -65,8 +66,8 @@ for s = 1:length(all_sessions)
                 winFunction = hamming(fftWinSize);
                 nfft = sampleRate;
 
-                [s,f,t] = spectrogram(dataChan,winFunction,fftWinSize-step,nfft,sampleRate);
-                amp = abs(s);
+                [S,f,t] = spectrogram(dataChan,winFunction,fftWinSize-step,nfft,sampleRate); % S instead of s to avoid conflict with session loop
+                amp = abs(S);
                 ampNorm = amp ./ repmat(median(amp,2),1,size(amp,2));
                 freq2use = f>=freq_range(1) & f<=freq_range(2);
                 frequencies = f(freq2use);
@@ -76,20 +77,29 @@ for s = 1:length(all_sessions)
 
                 %Kinematics
                 ind_WRB = find(strcmp(kinematic.labels,'WRB'));
-                if isempty(ind_WRB)
+                if ~isempty(ind_WRB)
+                    x = kinematic.x(:,ind_WRB);
+                    hasWRB = true;
+                else
                     warning('WRB not found for session %s trial %d', the_sess, trialNum);
-                    continue
+                    x = nan(length(tsViconCorr),1); % placeholder
+                    hasWRB = false;
                 end
-                x = kinematic.x(:,ind_WRB);
 
                 %Figure
-                figure('Units','normalized','Position',[0 0.1 1 0.8])
+                if ~isSave
+                    fig = figure('Units','normalized','Position',[0 0.1 1 0.8],'Visible','on');
+                else
+                    fig = figure('Visible','off');
+                end
 
                 %Raw spectrogram + kinematics
                 subplot(3,1,1)
                 hold on
                 imagesc(winCenter,frequencies,dataAmpRaw)
-                plot(tsViconCorr,(x-200)/200*50-50,'-r','LineWidth',2)
+                if hasWRB
+                    plot(tsViconCorr,(x-200)/200*50-50,'-r','LineWidth',2)
+                end
                 fill([time_range(1) time_range(2) time_range(2) time_range(1)],...
                      [-1 -1 0 0]*50,'g','EdgeColor','none','FaceAlpha',0.3)
                 colormap(D_i)
@@ -98,34 +108,40 @@ for s = 1:length(all_sessions)
                         'clim',[min(dataAmpRaw(:)),prctile(dataAmpRaw(:),98)],...
                         'ydir','normal')
                 title({['ch ' num2str(ch) ':' labelChan],'RAW spectrum aligned with kinematic'})
-                xlabel('Time /s'); ylabel('Frequency / Hz');
+                xlabel('Time /s'); ylabel('Frequency /Hz');
 
                 %Normalized spectrogram + kinematics
                 subplot(3,1,2)
                 hold on
                 imagesc(winCenter,frequencies,dataAmpNorm)
-                plot(tsViconCorr,(x-200)/200*50-50,'-r','LineWidth',2)
+                if hasWRB
+                    plot(tsViconCorr,(x-200)/200*50-50,'-r','LineWidth',2)
+                end
                 colormap(D_i)
                 set(gca,'xlim',time_range,'ylim',[-50 freq_range(2)],'clim',c_range,'ydir','normal')
                 title('Normalized spectrum aligned with kinematic')
-                xlabel('Time /s'); ylabel('Frequency / Hz');
+                xlabel('Time /s'); ylabel('Frequency /Hz');
 
                 %Kinematics only
                 subplot(3,1,3)
                 hold on
-                plot(tsViconCorr,x,'-r')
+                if hasWRB
+                    plot(tsViconCorr,x,'-r')
+                end
                 set(gca,'xlim',time_range,'ylim',[200 400])
                 title('Wrist-x VICON results aligned')
                 xlabel('Time /s'); ylabel('wrist x position /mm');
 
+                %Save or pause
                 if isSave
                     fname = sprintf('%s_tr%d_ch%d_%s.png',the_sess,trialNum,ch,labelChan);
-                    saveas(gcf,fullfile(save_dir,fname))
-                    saveas(gcf,fullfile(save_dir,strrep(fname,'.png','.fig')))
-                    close(gcf)
+                    saveas(fig,fullfile(save_dir,fname))
+                    saveas(fig,fullfile(save_dir,strrep(fname,'.png','.fig')))
+                    close(fig)
                 else
-                    pause(0.3) 
+                    uiwait(fig) % wait until figure closed manually for inspection
                 end
+
             end
         end
     end
