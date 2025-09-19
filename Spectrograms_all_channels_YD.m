@@ -3,7 +3,7 @@ clear all
 clc
 
 %Directories
-work_dir = 'C:\Users\physio\Documents\Code\ECoG_Data_preprocessing_matlab';
+work_dir = '\\bigdata\Science\Med\Physiology\PTN\Students\Yasmine\IC_stroke_decoder\ECoG_alignment';
 addpath(fullfile(work_dir,'function'));  %look for the correponding folder (with all the functions)
 D_i = NR_Palette;                        %add the function NR_Palette to the folder
 monkey_dir = 'Lilo_BSI';
