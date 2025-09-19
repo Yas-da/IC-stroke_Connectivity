@@ -2,7 +2,7 @@ close all
 clear all
 clc
 
-%en vrai mettre ailleurs que dans le PTN comme c'est assez lours
+%en vrai mettre ailleurs que dans le PTN comme c'est assez lourd
 work_dir = 'C:\Users\physio\Documents\Code\ECoG_Data_preprocessing_matlab';
 addpath(fullfile(work_dir,'function'))  
 D_i = NR_Palette;
