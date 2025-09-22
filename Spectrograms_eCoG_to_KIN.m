@@ -1,13 +1,3 @@
-Processing session 20250718, trial 3 (random)
-Error using  + 
-Arrays have incompatible sizes for this operation.
-
-Error in test_ECOG_KIN_5M_aligned (line 54)
-                tsViconCorr = startViconNSP/sampleRate + (1:durKIN)/fs_video;
-
-Related documentation
-
-
 close all; 
 clear; 
 clc;
