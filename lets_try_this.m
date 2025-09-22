@@ -1,3 +1,14 @@
+
+Processing session 20250522, trial 1 (left - SC)
+Warning: Found 67 channels for 20250522_tr1 (expected 64). 
+> In spectrograms_for_connectivity_analysis (line 149) 
+Error using subplot
+Index exceeds number of subplots.
+
+Error in spectrograms_for_connectivity_analysis (line 172)
+            ax = subplot(plot_grid_rows, plot_grid_cols, chIdx);
+ 
+
 %% pipeline_eCog_export_per_trial.m
 close all; clear; clc;
 
