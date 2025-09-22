@@ -9,7 +9,7 @@ D_i        = NR_Palette;
 monkey_dir = 'Lilo';
 data_dir   = '\\bigdata\Science\Med\Physiology\PTN\Data\IC_Stroke\LILO_BSI';  
 
-%% Get the sessions to process
+%Get the sessions to process
 sheet_file = 'W:\Students\Yasmine\IC_stroke_decoder\ECoG_alignment\ECoG_Data_preprocessing_matlab\Analysis\NHP_ECoG_Lilo_20250922.csv';
 T = readtable(sheet_file, 'VariableNamingRule', 'preserve', 'Delimiter', ',');
 disp(T.Properties.VariableNames)
@@ -33,12 +33,12 @@ for iRow = 1:height(T)
         input_dir = fullfile(data_dir, sess, [sess '_processed']);
         ecog_file = fullfile(input_dir, [monkey_dir '_' sess '_tr' num2str(trial_num) '_ecog.mat']);
         if ~exist(ecog_file,'file')
-            warning('ECoG manquant pour session %s trial %d', sess, trial_num);
+            warning('No ecog for the sess %s trial %d', sess, trial_num);
             continue
         end
         load(ecog_file, 'data','sampleRate','startViconNSP','endViconNSP');
 
-        %Load Vicon if available
+        %% Load Vicon if available
         vicon_file = fullfile(input_dir, [monkey_dir '_' sess '_tr' num2str(trial_num) '_vicon.mat']);
         hasVicon   = exist(vicon_file,'file');
         kin_x      = [];
@@ -53,24 +53,24 @@ for iRow = 1:height(T)
                 durKIN    = length(kin_x);
                 tsViconCorr = startViconNSP/sampleRate + (1:durKIN)/fs_video;
             else
-                warning('No WRB marker for %s trial %d', sess, trial_num);
+                warning('No vicon marker for %s trial %d', sess, trial_num);
             end
         end
 
-        %Output dirs (in PTN\Yasmine\IC-stroke_connectivity)
+        %% Output dirs (in PTN\Yasmine\IC-stroke_connectivity)
         export_root   = fullfile(work_dir, 'data', sess);
         fig_dir       = fullfile(export_root, 'Figures');
         trial_dir     = fullfile(export_root, 'Trials');
         if ~exist(fig_dir,'dir'); mkdir(fig_dir); end
         if ~exist(trial_dir,'dir'); mkdir(trial_dir); end
 
-        %Loop : array + channels
+        %Loop arrays + channels
         for ar = 1:length(data)
             for ch = 1:length(data(ar).Label)
                 dataChan  = double(data(ar).Data(ch,:));
                 labelChan = data(ar).Label{ch};
 
-                %% Spectrogram
+                %Spectrogram
                 step = sampleRate/20;
                 fftWinSize = sampleRate/4;
                 winFunction = hamming(fftWinSize);
@@ -84,11 +84,10 @@ for iRow = 1:height(T)
                 frequencies = f(freq2use);
                 winCenter   = t;
 
-            
                 c_range = [0 2];    
                 sigma   = 6;
 
-                %Figure simple
+                %fig
                 figure('Units','normalized','Position',[0 0.1 1 0.7])
 
                 %RAW spectrum
@@ -125,11 +124,11 @@ for iRow = 1:height(T)
                     set(gca,'XTick',[],'YTick',[])
                 end
 
-                %Save figure
+                %%Save figure
                 saveas(gcf, fullfile(fig_dir, sprintf('%s_tr%d_chan%s.png', sess, trial_num, labelChan)));
                 close(gcf);
 
-                %Export .mat
+                %%Export .mat
                 S.signal     = dataChan;
                 S.time_ecog  = (0:length(dataChan)-1)/sampleRate;
                 S.metadata   = struct('session',sess,'trial',trial_num, ...
