@@ -1,3 +1,35 @@
+PS W:\Students\Yasmine\Projet\Connectivity_YD> & C:/Users/Phoenix/Anaconda3/python.exe w:/Students/Yasmine/Projet
+/Connectivity_YD/Pre_Post_lesion_connectivity/Pre_post_lesion_connectivity.py
+Traceback (most recent call last):
+  File "w:/Students/Yasmine/Projet/Connectivity_YD/Pre_Post_lesion_connectivity/Pre_post_lesion_connectivity.py",
+ line 98, in <module>
+    R = np.corrcoef(env_ds)
+  File "<__array_function__ internals>", line 6, in corrcoef
+  File "C:\Users\Phoenix\AppData\Roaming\Python\Python37\site-packages\numpy\lib\function_base.py", line 2683, in
+ corrcoef
+    c = cov(x, y, rowvar, dtype=dtype)
+  File "<__array_function__ internals>", line 6, in cov
+  File "C:\Users\Phoenix\AppData\Roaming\Python\Python37\site-packages\numpy\lib\function_base.py", line 2541, in
+ cov
+    c = dot(X, X_T.conj())
+  File "<__array_function__ internals>", line 6, in dot
+numpy.core._exceptions.MemoryError: Unable to allocate 717. GiB for an array with shape (310294, 310294) and data
+ type float64
+PS W:\Students\Yasmine\Projet\Connectivity_YD> & C:/Users/Phoenix/Anaconda3/envs/mediapipe-env/python.exe w:/Stud
+ents/Yasmine/Projet/Connectivity_YD/Pre_Post_lesion_connectivity/Pre_post_lesion_connectivity.py
+Traceback (most recent call last):
+  File "w:\Students\Yasmine\Projet\Connectivity_YD\Pre_Post_lesion_connectivity\Pre_post_lesion_connectivity.py",
+ line 98, in <module>
+    R = np.corrcoef(env_ds)
+  File "C:\Users\Phoenix\Anaconda3\envs\mediapipe-env\lib\site-packages\numpy\lib\function_base.py", line 2889, i
+n corrcoef
+    c = cov(x, y, rowvar, dtype=dtype)
+  File "C:\Users\Phoenix\Anaconda3\envs\mediapipe-env\lib\site-packages\numpy\lib\function_base.py", line 2747, i
+n cov
+    c = dot(X, X_T.conj())
+numpy.core._exceptions._ArrayMemoryError: Unable to allocate 717. GiB for an array with shape (310294, 310294) an
+d data type float64
+
 import os, glob, h5py
 import numpy as np
 import scipy.signal as sp
