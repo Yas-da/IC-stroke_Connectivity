@@ -1,3 +1,13 @@
+PS W:\Students\Yasmine\Projet\Connectivity_YD> & C:/Users/Phoenix/Anaconda3/envs/mediapipe-env/python.exe w:/Stud
+ents/Yasmine/Projet/Connectivity_YD/Pre_Post_lesion_connectivity/Pre_post_lesion_connectivity.py
+Traceback (most recent call last):
+  File "w:\Students\Yasmine\Projet\Connectivity_YD\Pre_Post_lesion_connectivity\Pre_post_lesion_connectivity.py",
+ line 98, in <module>
+    R = np.zeros((nChan,nChan))
+numpy.core._exceptions._ArrayMemoryError: Unable to allocate 717. GiB for an array with shape (310294, 310294) an
+d data type float64
+PS W:\Students\Yasmine\Projet\Connectivity_YD>
+
 import os, glob, h5py
 import numpy as np
 import scipy.signal as sp
