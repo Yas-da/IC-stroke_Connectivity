@@ -1,18 +1,3 @@
-PS W:\Students\Yasmine\Projet\Connectivity_YD> & C:/Users/Phoenix/Anaconda3/envs/mediapipe-env/python.exe w:/Stud
-ents/Yasmine/Projet/Connectivity_YD/Pre_Post_lesion_connectivity/Pre_post_lesion_connectivity.py
-Traceback (most recent call last):
-  File "w:\Students\Yasmine\Projet\Connectivity_YD\Pre_Post_lesion_connectivity\Pre_post_lesion_connectivity.py",
- line 99, in <module>
-    R = np.corrcoef(env_ds)
-  File "C:\Users\Phoenix\Anaconda3\envs\mediapipe-env\lib\site-packages\numpy\lib\function_base.py", line 2889, i
-n corrcoef
-    c = cov(x, y, rowvar, dtype=dtype)
-  File "C:\Users\Phoenix\Anaconda3\envs\mediapipe-env\lib\site-packages\numpy\lib\function_base.py", line 2747, i
-n cov
-    c = dot(X, X_T.conj())
-numpy.core._exceptions._ArrayMemoryError: Unable to allocate 717. GiB for an array with shape (310294, 310294) an
-d data type float64
-
 import os, glob, h5py
 import numpy as np
 import scipy.signal as sp
@@ -20,12 +5,11 @@ from scipy.stats import ttest_ind
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
-#Directories
 base_dir = r'\\bigdata\Science\Med\Physiology\PTN\Yasmine\IC-stroke_connectivity\data'
 out_dir  = r'\\bigdata\Science\Med\Physiology\PTN\Yasmine\IC-stroke_connectivity\ConnectivityResults'
 os.makedirs(out_dir, exist_ok=True)
 
-fs = 2000  #sampling frequency
+fs = 2000
 bands = {
     'delta': (1,4),
     'theta': (4,8),
@@ -35,10 +19,7 @@ bands = {
     'highgamma': (70,200)
 }
 filt_order = 4
-date_cutoff = 20250811  #Date of the lesion
-
-grid_side = 8
-coords = [(i,j) for i in range(grid_side) for j in range(grid_side)]
+date_cutoff = 20250811
 
 def load_trial_mat(filepath):
     with h5py.File(filepath,'r') as f:
@@ -109,9 +90,9 @@ for sess in sess_dirs:
         for bname,fr in bands.items():
             Xf = bandpass(X, fs, fr, order=filt_order)
             env = np.abs(sp.hilbert(Xf,axis=-1))
-            factor = max(1, nTime // 2000)
-            env_ds = env[:, ::factor]
-            R = np.corrcoef(env_ds)
+            factor = max(1, env.shape[1] // 2000)
+            env_ds = env[:,::factor]
+            R = np.corrcoef(env_ds, rowvar=True)
             all_results[bname].append(dict(R=R, condition=condition,
                                            session=sess_name, trial=dat['metadata']['trial']))
 
