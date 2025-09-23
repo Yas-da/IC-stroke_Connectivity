@@ -1,13 +1,3 @@
-PS W:\Students\Yasmine\Projet\Connectivity_YD> & C:/Users/Phoenix/Anaconda3/envs/mediapipe-env/python.exe w:/Stud
-ents/Yasmine/Projet/Connectivity_YD/Pre_Post_lesion_connectivity/Pre_post_lesion_connectivity.py
-Traceback (most recent call last):
-  File "w:\Students\Yasmine\Projet\Connectivity_YD\Pre_Post_lesion_connectivity\Pre_post_lesion_connectivity.py",
- line 98, in <module>
-    R = np.zeros((nChan,nChan))
-numpy.core._exceptions._ArrayMemoryError: Unable to allocate 717. GiB for an array with shape (310294, 310294) an
-d data type float64
-PS W:\Students\Yasmine\Projet\Connectivity_YD>
-
 import os, glob, h5py
 import numpy as np
 import scipy.signal as sp
@@ -104,13 +94,9 @@ for sess in sess_dirs:
         for bname,fr in bands.items():
             Xf = bandpass(X, fs, fr, order=filt_order)
             env = np.abs(sp.hilbert(Xf,axis=-1))
-            env_ds = env[:,::10]
-            R = np.zeros((nChan,nChan))
-            for i in range(nChan):
-                for j in range(i,nChan):
-                    r = np.corrcoef(env_ds[i], env_ds[j])[0,1]
-                    R[i,j] = r
-                    R[j,i] = r
+            factor = max(1, nTime // 2000)
+            env_ds = env[:, ::factor]
+            R = np.corrcoef(env_ds)
             all_results[bname].append(dict(R=R, condition=condition,
                                            session=sess_name, trial=dat['metadata']['trial']))
 
