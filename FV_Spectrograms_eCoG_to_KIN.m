@@ -1,17 +1,16 @@
-%% pipeline_eCog_export_per_trial.m
 close all; clear; clc;
 
-%% Directories
+%Directories
 work_root  = '\\bigdata\Science\Med\Physiology\PTN\Yasmine\IC-stroke_connectivity';
 addpath(fullfile(work_root,'function'));
 D_i        = NR_Palette;
 monkey_dir = 'Lilo';
 data_dir   = '\\bigdata\Science\Med\Physiology\PTN\Data\IC_Stroke\LILO_BSI';
 
-%% Parameters
+%Parameters
 default_fs = 2000;  
 
-%% Get sessions to process
+%Get sessions to process
 sheet_file = 'W:\Students\Yasmine\IC_stroke_decoder\ECoG_alignment\ECoG_Data_preprocessing_matlab\Analysis\NHP_ECoG_Lilo_20250922.csv';
 T = readtable(sheet_file, 'VariableNamingRule', 'preserve', 'Delimiter', ',');
 disp(T.Properties.VariableNames)
@@ -54,7 +53,7 @@ for iRow = 1:height(T)
             continue
         end
 
-        %% Start/end Vicon
+        %Start/end Vicon
         startViconNSP_val = 0;
         if isfield(Sload,'startViconNSP') && ~isempty(Sload.startViconNSP)
             startViconNSP_val = Sload.startViconNSP(1);
@@ -64,7 +63,7 @@ for iRow = 1:height(T)
             endViconNSP_val = Sload.endViconNSP(1);
         end
 
-        %% Load Vicon if available
+        %Load Vicon if available
         vicon_file = fullfile(input_dir, [monkey_dir '_' sess_str '_tr' num2str(trial_num) '_vicon.mat']);
         hasVicon   = exist(vicon_file,'file');
         kin_x      = [];
@@ -88,7 +87,7 @@ for iRow = 1:height(T)
             end
         end
 
-        %% Create output directories (per trial)
+        %Create output directories (per trial)
         export_root   = fullfile(work_root, 'data', sess_str);
         trial_root    = fullfile(export_root, sprintf('trial%d', trial_num));
         fig_dir       = fullfile(trial_root, 'Figures');
@@ -96,7 +95,7 @@ for iRow = 1:height(T)
         if ~exist(fig_dir,'dir');  mkdir(fig_dir);  end
         if ~exist(trial_dir,'dir'); mkdir(trial_dir); end
 
-        %% Assemble signals matrix
+        %Assemble signals matrix
         chan_labels = {};
         signals_cell = {};
         for ar = 1:length(data_struct)
@@ -117,7 +116,7 @@ for iRow = 1:height(T)
         end
         fprintf('Found %d channels for %s_tr%d\n', nChannels, sess_str, trial_num);
 
-        %% Spectrogram params
+        %Spectrogram params
         step = round(sampleRate/20);
         fftWinSize = round(sampleRate/4);
         winFunction = hamming(fftWinSize);
@@ -131,11 +130,11 @@ for iRow = 1:height(T)
         frequencies = f(freq2use);
         winCenter = t;
 
-        %% Dynamic grid
+        %Dynamic grid
         plot_grid_rows = ceil(sqrt(nChannels));
         plot_grid_cols = ceil(nChannels / plot_grid_rows);
 
-        %% RAW figure
+        %RAW figure
         fig_raw = figure('Units','normalized','Position',[0 0.05 1 0.9],'Visible','off');
         colormap(fig_raw, D_i);
         for chIdx = 1:nChannels
@@ -153,7 +152,7 @@ for iRow = 1:height(T)
             clim([min(dataAmp(:)) prctile(dataAmp(:),98)]);
         end
 
-        %% Kinematic overlay
+        %Kinematic overlay
         if ~isempty(kin_x)
             fig_kin = figure('Units','normalized','Position',[0.1 0.1 0.3 0.2],'Visible','off');
             plot(tsViconCorr, kin_x, '-r'); title('Wrist-x VICON');
@@ -168,7 +167,7 @@ for iRow = 1:height(T)
         exportgraphics(fig_raw, fullfile(fig_dir, sprintf('%s_tr%d_raw_grid.png', sess_str, trial_num)), 'Resolution',300);
         close(fig_raw);
 
-        %% NORMALIZED figure
+        %Normalized figure
         fig_norm = figure('Units','normalized','Position',[0 0.05 1 0.9],'Visible','off');
         colormap(fig_norm, D_i);
         for chIdx = 1:nChannels
@@ -193,7 +192,7 @@ for iRow = 1:height(T)
         exportgraphics(fig_norm, fullfile(fig_dir, sprintf('%s_tr%d_norm_grid.png', sess_str, trial_num)), 'Resolution',300);
         close(fig_norm);
 
-        %% Save .mat
+        %Save .mat
         out_struct.signals = signals;
         out_struct.time_ecog = (0:size(signals,2)-1) / sampleRate;
         out_struct.channel_labels = chan_labels;
