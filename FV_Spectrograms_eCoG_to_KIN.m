@@ -1,4 +1,6 @@
-close all; clear; clc;
+close all; 
+clear; 
+clc;
 
 %Directories
 work_root  = '\\bigdata\Science\Med\Physiology\PTN\Yasmine\IC-stroke_connectivity';
