@@ -4,13 +4,14 @@ import scipy.signal as sp
 from scipy.stats import ttest_ind
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
+from scipy.ndimage import gaussian_filter
 
 # Directories
 base_dir = r'\\bigdata\Science\Med\Physiology\PTN\Yasmine\IC-stroke_connectivity\data'
 out_dir  = r'\\bigdata\Science\Med\Physiology\PTN\Yasmine\IC-stroke_connectivity\ConnectivityResults'
 os.makedirs(out_dir, exist_ok=True)
 
-fs = 2000  # sampling frequency
+fs = 2000  # Sampling frequency
 bands = {
     'delta': (1,4),
     'theta': (4,8),
@@ -22,12 +23,9 @@ bands = {
 filt_order = 4
 date_cutoff = 20250811  # Date of the lesion
 
-grid_side = 8
-coords = [(i,j) for i in range(grid_side) for j in range(grid_side)]
-
 def load_trial_mat(filepath):
     with h5py.File(filepath,'r') as f:
-        signals = np.array(f['signals'])      #(nChan, nTime)
+        signals = np.array(f['signals'])
         time_ecog = np.array(f['time_ecog']).squeeze()
         chan_labels = []
         for ref in f['channel_labels'][0]:
@@ -88,17 +86,15 @@ for sess in sess_dirs:
     trial_dirs = glob.glob(os.path.join(sess,'trial*','MatFiles','*_allChannels.mat'))
     for trial_file in trial_dirs:
         dat = load_trial_mat(trial_file)
-        X = dat['signals']  #(nChan,nTime)
+        X = dat['signals']  # nChan x nTime
         nChan,nTime = X.shape
         condition = 'pre' if sess_date<date_cutoff else 'post'
         for bname,fr in bands.items():
             Xf = bandpass(X, fs, fr, order=filt_order)
             env = np.abs(sp.hilbert(Xf,axis=-1))
-            env_ds = env[:,::10]   # downsample ~200 Hz
-            # Ensure correct shape for correlation (channels x time)
-            if env_ds.shape[0] != nChan:
-                env_ds = env_ds.T
-            R = np.corrcoef(env_ds, rowvar=True)
+            env_ds = env[:,::10]  # downsample ~200 Hz
+            # Corrélation entre canaux (67x67)
+            R = np.corrcoef(env_ds)
             all_results[bname].append(dict(R=R, condition=condition,
                                            session=sess_name, trial=dat['metadata']['trial']))
 
@@ -110,10 +106,13 @@ for bname in bands:
     Rs_post= [r['R'] for r in all_results[bname] if r['condition']=='post']
     Rm_pre = np.mean(Rs_pre,axis=0)
     Rm_post= np.mean(Rs_post,axis=0)
+
     iu = np.triu_indices(Rm_pre.shape[0],1)
     ZA = np.array([fisher_z(R[iu]) for R in Rs_pre]).T
     ZB = np.array([fisher_z(R[iu]) for R in Rs_post]).T
+
     sig_mask, pvals = cluster_permutation(ZA,ZB)
+
     sigMat = np.zeros_like(Rm_pre,dtype=bool)
     sigMat[iu] = sig_mask
     sigMat = sigMat|sigMat.T
@@ -131,14 +130,14 @@ for bname in bands:
 pdf.close()
 print("PDF saved at:", pdf_path)
 
-# Features extraction
+# Features for decoder
 features = []
 labels = []
 for bname in bands:
     for r in all_results[bname]:
         R = r['R']
         node_strength = R.sum(1)
-        bandpower = np.diag(R)  
+        bandpower = np.diag(R)
         feat = np.concatenate([node_strength, bandpower])
         features.append(feat)
         labels.append(0 if r['condition']=='pre' else 1)
