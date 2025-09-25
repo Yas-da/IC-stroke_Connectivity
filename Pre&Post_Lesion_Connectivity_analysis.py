@@ -71,7 +71,7 @@ post_mean= np.mean(np.stack(post_trials,axis=0),axis=0) if len(post_trials)>0 el
 pdf_path = os.path.join(out_dir,"Connectivity_results.pdf")
 pdf = PdfPages(pdf_path)
 
-# --- electrode layout (8x8 grid)
+#electrode layout (8x8 grid)
 coords = np.array([(i//8, i%8) for i in range(64)])
 
 for bname,fr in bands.items():
@@ -92,7 +92,7 @@ for bname,fr in bands.items():
     if pre_env is not None and post_env is not None:
         diff_R = post_R - pre_R
 
-        # --- matrices
+        #Matrix
         fig,axs = plt.subplots(1,3,figsize=(15,5))
         im0=axs[0].imshow(pre_R,vmin=0,vmax=1,cmap=custom_cmap()); axs[0].set_title(f'{bname} PRE')
         fig.colorbar(im0,ax=axs[0])
@@ -102,7 +102,7 @@ for bname,fr in bands.items():
         fig.colorbar(im2,ax=axs[2])
         pdf.savefig(fig); plt.show(); plt.close(fig)
 
-        # --- node strength and significance mapping
+        #Significant differences
         strength_pre  = np.sum(pre_R,axis=1)
         strength_post = np.sum(post_R,axis=1)
         diff_strength = strength_post - strength_pre
@@ -121,7 +121,7 @@ for bname,fr in bands.items():
         fig.colorbar(sc,ax=ax)
         pdf.savefig(fig); plt.show(); plt.close(fig)
 
-        # --- temporal dynamics animation
+        #Video
         win_sec = 0.2
         step_sec= 0.05
         ds_factor=10
