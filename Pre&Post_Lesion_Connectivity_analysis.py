@@ -1,756 +1,158 @@
-n.exe w:/Students/Yasmine/Projet/Connectivity_YD/Pre_Post_lesion_connectivity/Pre_post_lesion_connec
-tivity.py
-Traceback (most recent call last):
-  File "w:\Students\Yasmine\Projet\Connectivity_YD\Pre_Post_lesion_connectivity\Pre_post_lesion_conn
-ectivity.py", line 123, in <module>
-    pre_R_windows = np.zeros((n_pre, n_windows, n_chan, n_chan))
-ValueError: negative dimensions are not allowed
-PS W:\Students\Yasmine\Projet\Connectivity_YD> ^C
-PS W:\Students\Yasmine\Projet\Connectivity_YD>
-import os
-import glob
-import h5py
+import os, glob, h5py
 import numpy as np
-from scipy.signal import butter, filtfilt, hilbert
+import scipy.signal as sp
 from scipy.stats import ttest_ind
 import matplotlib.pyplot as plt
-from matplotlib import colors, animation
+from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib.colors import LinearSegmentedColormap
+import matplotlib.animation as animation
 
+# Directories
 base_dir = r'\\bigdata\Science\Med\Physiology\PTN\Yasmine\IC-stroke_connectivity\data'
-out_dir = r'\\bigdata\Science\Med\Physiology\PTN\Yasmine\IC-stroke_connectivity\ConnectivityResults'
+out_dir  = r'\\bigdata\Science\Med\Physiology\PTN\Yasmine\IC-stroke_connectivity\ConnectivityResults'
 os.makedirs(out_dir, exist_ok=True)
 
 fs = 2000
+bands = {
+    'delta': (1,4),
+    'theta': (4,8),
+    'alpha': (8,13),
+    'beta': (13,30),
+    'gamma': (30,70),
+    'highgamma': (70,200)
+}
+filt_order = 4
 date_cutoff = 20250811
 
-bad_channel_indices = [64, 65, 66]
-
-bands = {
-    "delta": (1, 4),
-    "theta": (4, 8),
-    "alpha": (8, 12),
-    "beta": (12, 30),
-    "gamma": (30, 70),
-    "high_gamma": (70, 150)
-}
-
-cmap = colors.LinearSegmentedColormap.from_list("gray_red", ["#2c2c2c", "#bfbfbf", "#ffb3b3", "#800000"])
-
 def load_trial_mat(filepath):
-    with h5py.File(filepath, "r") as f:
-        signals = np.array(f["signals"])
-    return signals
+    with h5py.File(filepath,'r') as f:
+        signals = np.array(f['signals'])
+        chan_labels = []
+        for ref in f['channel_labels'][0]:
+            chan_labels.append(''.join(chr(c[0]) for c in f[ref][:]))
+        meta = {}
+        for k in f['metadata'].keys():
+            try:
+                val = f['metadata'][k][()]
+                if hasattr(val,'tolist'):
+                    val = val.tolist()
+                meta[k] = val
+            except:
+                pass
+    return dict(signals=signals, chan_labels=chan_labels, metadata=meta)
 
-def bandpass(data, low, high, fs, order=4):
-    b, a = butter(order, [low/(fs/2), high/(fs/2)], btype="band")
-    return filtfilt(b, a, data, axis=-1)
+def bandpass(data, fs, frange, order=4):
+    Wn = [frange[0]/(fs/2), frange[1]/(fs/2)]
+    b,a = sp.butter(order, Wn, btype='band')
+    return sp.filtfilt(b,a,data,axis=-1)
 
-sess_dirs = [d for d in glob.glob(os.path.join(base_dir, "*")) if os.path.isdir(d)]
-pre_trials = []
-post_trials = []
+def custom_cmap():
+    return LinearSegmentedColormap.from_list("black_red",
+        ["black","dimgray","lightgray","salmon","darkred"])
 
+# Collect signals
+pre_trials, post_trials = [], []
+sess_dirs = [d for d in glob.glob(os.path.join(base_dir,'*')) if os.path.isdir(d)]
 for sess in sess_dirs:
     sess_name = os.path.basename(sess)
-    try:
-        sess_date = int(sess_name)
-    except:
-        continue
-    trial_files = glob.glob(os.path.join(sess, "trial*", "MatFiles", "*_allChannels.mat"))
-    for tf in trial_files:
-        try:
-            sigs = load_trial_mat(tf)
-        except Exception:
-            continue
-        if sigs.shape[0] < 64:
-            continue
-        X64 = sigs[:64, :]
+    sess_date = int(sess_name)
+    trial_dirs = glob.glob(os.path.join(sess,'trial*','MatFiles','*_allChannels.mat'))
+    for trial_file in trial_dirs:
+        dat = load_trial_mat(trial_file)
+        X = dat['signals'][:64]  # keep only 64 channels
         if sess_date < date_cutoff:
-            pre_trials.append(X64)
+            pre_trials.append(X)
         else:
-            post_trials.append(X64)
-
-if len(pre_trials) == 0 or len(post_trials) == 0:
-    raise RuntimeError("Not enough pre or post trials found. Check base_dir and date_cutoff.")
-
-min_len = min([t.shape[1] for t in pre_trials + post_trials])
-pre_trials = [t[:, :min_len] for t in pre_trials]
-post_trials = [t[:, :min_len] for t in post_trials]
-pre_arr = np.stack(pre_trials, axis=0)
-post_arr = np.stack(post_trials, axis=0)
-n_pre, n_chan, n_time = pre_arr.shape
-n_post = post_arr.shape[0]
-
-ds_factor = 10
-fs_ds = fs // ds_factor
-win_sec = 0.2
-step_sec = 0.1
-win_ds = int(win_sec * fs_ds)
-step_ds = int(step_sec * fs_ds)
-
-def sliding_windows_env(env, win, step):
-    n_chan, n_t = env.shape
-    windows = []
-    starts = list(range(0, n_t - win + 1, step))
-    for s in starts:
-        windows.append(env[:, s:s+win])
-    return np.stack(windows, axis=0)
-
-def corr_matrix_from_env(env):
-    return np.corrcoef(env)
-
-def benjamini_hochberg(pvals_flat, alpha=0.05):
-    m = len(pvals_flat)
-    sorted_idx = np.argsort(pvals_flat)
-    sorted_p = pvals_flat[sorted_idx]
-    thresh = np.arange(1, m+1) * alpha / m
-    below = sorted_p <= thresh
-    if not np.any(below):
-        return np.zeros(m, dtype=bool)
-    max_i = np.max(np.where(below)[0])
-    crit = thresh[max_i]
-    return pvals_flat <= crit
-
-results_summary = {}
-
-for band_name, (low, high) in bands.items():
-    pre_env_trials = []
-    post_env_trials = []
-    for tr in range(n_pre):
-        X = pre_arr[tr]
-        Xf = bandpass(X, low, high, fs)
-        env = np.abs(hilbert(Xf, axis=-1))[:, ::ds_factor]
-        pre_env_trials.append(env)
-    for tr in range(n_post):
-        X = post_arr[tr]
-        Xf = bandpass(X, low, high, fs)
-        env = np.abs(hilbert(Xf, axis=-1))[:, ::ds_factor]
-        post_env_trials.append(env)
-    pre_env_trials = np.array(pre_env_trials)
-    post_env_trials = np.array(post_env_trials)
-
-    n_windows = (pre_env_trials.shape[2] - win_ds) // step_ds + 1
-    pre_R_windows = np.zeros((n_pre, n_windows, n_chan, n_chan))
-    post_R_windows = np.zeros((n_post, n_windows, n_chan, n_chan))
-
-    for t in range(n_pre):
-        win_stack = sliding_windows_env(pre_env_trials[t], win_ds, step_ds)
-        for w in range(win_stack.shape[0]):
-            pre_R_windows[t, w] = corr_matrix_from_env(win_stack[w])
-    for t in range(n_post):
-        win_stack = sliding_windows_env(post_env_trials[t], win_ds, step_ds)
-        for w in range(win_stack.shape[0]):
-            post_R_windows[t, w] = corr_matrix_from_env(win_stack[w])
-
-    mean_Rpre_per_trial = pre_R_windows.mean(axis=1)
-    mean_Rpost_per_trial = post_R_windows.mean(axis=1)
-    avg_conn_pre = mean_Rpre_per_trial.mean(axis=0)
-    avg_conn_post = mean_Rpost_per_trial.mean(axis=0)
-    diff_conn = avg_conn_post - avg_conn_pre
-
-    np.save(os.path.join(out_dir, f'R_mean_{band_name}_pre.npy'), avg_conn_pre)
-    np.save(os.path.join(out_dir, f'R_mean_{band_name}_post.npy'), avg_conn_post)
-    np.save(os.path.join(out_dir, f'R_diff_{band_name}.npy'), diff_conn)
-
-    pvals = np.ones((n_chan, n_chan))
-    for i in range(n_chan):
-        for j in range(n_chan):
-            a = mean_Rpre_per_trial[:, i, j]
-            b = mean_Rpost_per_trial[:, i, j]
-            _, p = ttest_ind(a, b, equal_var=False)
-            pvals[i, j] = p
-
-    iu = np.triu_indices(n_chan, 1)
-    pvals_flat = pvals[iu]
-    sig_flat = benjamini_hochberg(pvals_flat, alpha=0.05)
-    sig_mask = np.zeros_like(pvals, dtype=bool)
-    sig_mask[iu] = sig_flat
-    sig_mask = sig_mask | sig_mask.T
-
-    np.save(os.path.join(out_dir, f'pvals_{band_name}.npy'), pvals)
-    np.save(os.path.join(out_dir, f'sigmask_{band_name}.npy'), sig_mask)
-
-    plt.figure(figsize=(12,4))
-    plt.subplot(1,3,1)
-    plt.imshow(avg_conn_pre, cmap=cmap, vmin=-1, vmax=1)
-    plt.title(f'{band_name} PRE')
-    plt.colorbar()
-    plt.subplot(1,3,2)
-    plt.imshow(avg_conn_post, cmap=cmap, vmin=-1, vmax=1)
-    plt.title(f'{band_name} POST')
-    plt.colorbar()
-    plt.subplot(1,3,3)
-    plt.imshow(diff_conn, cmap=cmap, vmin=-1, vmax=1)
-    plt.title(f'{band_name} DIFF')
-    plt.colorbar()
-    plt.tight_layout()
-    plt.savefig(os.path.join(out_dir, f'connectivity_{band_name}.png'))
-    plt.show()
-
-    sig_diff_mat = np.zeros_like(diff_conn)
-    sig_diff_mat[sig_mask] = diff_conn[sig_mask]
-    plt.figure(figsize=(6,6))
-    plt.imshow(sig_diff_mat, cmap=cmap, vmin=-1, vmax=1)
-    plt.title(f'{band_name} SIGNIFICANT DIFF (FDR)')
-    plt.colorbar()
-    plt.savefig(os.path.join(out_dir, f'significant_diff_{band_name}.png'))
-    plt.show()
-
-    coords = {idx: (idx % 8, 7 - (idx // 8)) for idx in range(64)}
-    plt.figure(figsize=(6,6))
-    for i in range(64):
-        x, y = coords[i]
-        plt.scatter(x, y, c='k', s=25)
-    pairs = np.argwhere(sig_mask)
-    drawn = set()
-    for (i, j) in pairs:
-        if i < j and (i, j) not in drawn:
-            x1, y1 = coords[i]; x2, y2 = coords[j]
-            plt.plot([x1, x2], [y1, y2], color="#800000", alpha=0.6, linewidth=0.8)
-            drawn.add((i, j))
-    plt.title(f'{band_name} - significant edges (FDR)')
-    plt.axis('off')
-    plt.savefig(os.path.join(out_dir, f'electrode_mapping_{band_name}.png'))
-    plt.show()
-
-    mean_conn_pre_ts = pre_R_windows.mean(axis=(0,2,3))
-    mean_conn_post_ts = post_R_windows.mean(axis=(0,2,3))
-    plt.figure()
-    plt.plot(mean_conn_pre_ts, label='Pre mean connectivity', color='#2c2c2c')
-    plt.plot(mean_conn_post_ts, label='Post mean connectivity', color='#800000')
-    plt.xlabel('Window index')
-    plt.ylabel('Mean connectivity')
-    plt.legend()
-    plt.title(f'{band_name} - Temporal dynamics (mean over windows and channels)')
-    plt.savefig(os.path.join(out_dir, f'temporal_mean_{band_name}.png'))
-    plt.show()
-
-    avg_R_pre_ts = pre_R_windows.mean(axis=0)
-    avg_R_post_ts = post_R_windows.mean(axis=0)
-    np.save(os.path.join(out_dir, f'R_windows_{band_name}_pre.npy'), avg_R_pre_ts)
-    np.save(os.path.join(out_dir, f'R_windows_{band_name}_post.npy'), avg_R_post_ts)
-
-    fig, ax = plt.subplots(figsize=(6,6))
-    im = ax.imshow(avg_R_post_ts[0], cmap=cmap, vmin=-1, vmax=1)
-    fig.colorbar(im)
-    def update(frame):
-        im.set_array(avg_R_post_ts[frame])
-        ax.set_title(f'{band_name} Post - frame {frame}')
-        return [im]
-    ani = animation.FuncAnimation(fig, update, frames=avg_R_post_ts.shape[0], interval=200, blit=True)
-    ani_path = os.path.join(out_dir, f'connectivity_anim_{band_name}_post.mp4')
-    ani.save(ani_path, writer='ffmpeg')
-    plt.close(fig)
-
-    results_summary[band_name] = {
-        "avg_conn_pre": avg_conn_pre,
-        "avg_conn_post": avg_conn_post,
-        "diff_conn": diff_conn,
-        "pvals": pvals,
-        "sig_mask": sig_mask,
-        "R_windows_pre": avg_R_pre_ts,
-        "R_windows_post": avg_R_post_ts,
-        "mean_conn_pre_ts": mean_conn_pre_ts,
-        "mean_conn_post_ts": mean_conn_post_ts
-    }
-
-np.savez(os.path.join(out_dir, "connectivity_summary_allbands.npz"), **results_summary)
-print("All results saved in:", out_dir)
-
-
-import os
-import glob
-import h5py
-import numpy as np
-from scipy.signal import butter, filtfilt, hilbert
-from scipy.stats import ttest_ind
-import matplotlib.pyplot as plt
-from matplotlib import colors, animation
-
-base_dir = r'\\bigdata\Science\Med\Physiology\PTN\Yasmine\IC-stroke_connectivity\data'
-out_dir = r'\\bigdata\Science\Med\Physiology\PTN\Yasmine\IC-stroke_connectivity\ConnectivityResults'
-os.makedirs(out_dir, exist_ok=True)
-
-fs = 2000
-date_cutoff = 20250811
-
-bad_channel_indices = [64, 65, 66]
-
-bands = {
-    "delta": (1, 4),
-    "theta": (4, 8),
-    "alpha": (8, 12),
-    "beta": (12, 30),
-    "gamma": (30, 70),
-    "high_gamma": (70, 150)
-}
-
-cmap = colors.LinearSegmentedColormap.from_list("gray_red", ["#2c2c2c", "#bfbfbf", "#ffb3b3", "#800000"])
-
-def load_trial_mat(filepath):
-    with h5py.File(filepath, "r") as f:
-        signals = np.array(f["signals"])
-    return signals
-
-def bandpass(data, low, high, fs, order=4):
-    b, a = butter(order, [low/(fs/2), high/(fs/2)], btype="band")
-    return filtfilt(b, a, data, axis=-1)
-
-sess_dirs = [d for d in glob.glob(os.path.join(base_dir, "*")) if os.path.isdir(d)]
-pre_trials = []
-post_trials = []
-
-for sess in sess_dirs:
-    sess_name = os.path.basename(sess)
-    try:
-        sess_date = int(sess_name)
-    except:
-        continue
-    trial_files = glob.glob(os.path.join(sess, "trial*", "MatFiles", "*_allChannels.mat"))
-    for tf in trial_files:
-        try:
-            sigs = load_trial_mat(tf)
-        except Exception:
-            continue
-        if sigs.shape[0] < 64:
-            continue
-        X64 = sigs[:64, :]
-        if sess_date < date_cutoff:
-            pre_trials.append(X64)
-        else:
-            post_trials.append(X64)
-
-if len(pre_trials) == 0 or len(post_trials) == 0:
-    raise RuntimeError("Not enough pre or post trials found. Check base_dir and date_cutoff.")
-
-min_len = min([t.shape[1] for t in pre_trials + post_trials])
-pre_trials = [t[:, :min_len] for t in pre_trials]
-post_trials = [t[:, :min_len] for t in post_trials]
-pre_arr = np.stack(pre_trials, axis=0)
-post_arr = np.stack(post_trials, axis=0)
-n_pre, n_chan, n_time = pre_arr.shape
-n_post = post_arr.shape[0]
-
-ds_factor = 10
-fs_ds = fs // ds_factor
-win_sec = 0.2
-step_sec = 0.1
-win_ds = int(win_sec * fs_ds)
-step_ds = int(step_sec * fs_ds)
-
-def sliding_windows_env(env, win, step):
-    n_chan, n_t = env.shape
-    windows = []
-    starts = list(range(0, n_t - win + 1, step))
-    for s in starts:
-        windows.append(env[:, s:s+win])
-    return np.stack(windows, axis=0)
-
-def corr_matrix_from_env(env):
-    return np.corrcoef(env)
-
-def benjamini_hochberg(pvals_flat, alpha=0.05):
-    m = len(pvals_flat)
-    sorted_idx = np.argsort(pvals_flat)
-    sorted_p = pvals_flat[sorted_idx]
-    thresh = np.arange(1, m+1) * alpha / m
-    below = sorted_p <= thresh
-    if not np.any(below):
-        return np.zeros(m, dtype=bool)
-    max_i = np.max(np.where(below)[0])
-    crit = thresh[max_i]
-    return pvals_flat <= crit
-
-results_summary = {}
-
-for band_name, (low, high) in bands.items():
-    pre_env_trials = []
-    post_env_trials = []
-    for tr in range(n_pre):
-        X = pre_arr[tr]
-        Xf = bandpass(X, low, high, fs)
-        env = np.abs(hilbert(Xf, axis=-1))[:, ::ds_factor]
-        pre_env_trials.append(env)
-    for tr in range(n_post):
-        X = post_arr[tr]
-        Xf = bandpass(X, low, high, fs)
-        env = np.abs(hilbert(Xf, axis=-1))[:, ::ds_factor]
-        post_env_trials.append(env)
-    pre_env_trials = np.array(pre_env_trials)
-    post_env_trials = np.array(post_env_trials)
-
-    n_windows = (pre_env_trials.shape[2] - win_ds) // step_ds + 1
-    pre_R_windows = np.zeros((n_pre, n_windows, n_chan, n_chan))
-    post_R_windows = np.zeros((n_post, n_windows, n_chan, n_chan))
-
-    for t in range(n_pre):
-        win_stack = sliding_windows_env(pre_env_trials[t], win_ds, step_ds)
-        for w in range(win_stack.shape[0]):
-            pre_R_windows[t, w] = corr_matrix_from_env(win_stack[w])
-    for t in range(n_post):
-        win_stack = sliding_windows_env(post_env_trials[t], win_ds, step_ds)
-        for w in range(win_stack.shape[0]):
-            post_R_windows[t, w] = corr_matrix_from_env(win_stack[w])
-
-    mean_Rpre_per_trial = pre_R_windows.mean(axis=1)
-    mean_Rpost_per_trial = post_R_windows.mean(axis=1)
-    avg_conn_pre = mean_Rpre_per_trial.mean(axis=0)
-    avg_conn_post = mean_Rpost_per_trial.mean(axis=0)
-    diff_conn = avg_conn_post - avg_conn_pre
-
-    np.save(os.path.join(out_dir, f'R_mean_{band_name}_pre.npy'), avg_conn_pre)
-    np.save(os.path.join(out_dir, f'R_mean_{band_name}_post.npy'), avg_conn_post)
-    np.save(os.path.join(out_dir, f'R_diff_{band_name}.npy'), diff_conn)
-
-    pvals = np.ones((n_chan, n_chan))
-    for i in range(n_chan):
-        for j in range(n_chan):
-            a = mean_Rpre_per_trial[:, i, j]
-            b = mean_Rpost_per_trial[:, i, j]
-            _, p = ttest_ind(a, b, equal_var=False)
-            pvals[i, j] = p
-
-    iu = np.triu_indices(n_chan, 1)
-    pvals_flat = pvals[iu]
-    sig_flat = benjamini_hochberg(pvals_flat, alpha=0.05)
-    sig_mask = np.zeros_like(pvals, dtype=bool)
-    sig_mask[iu] = sig_flat
-    sig_mask = sig_mask | sig_mask.T
-
-    np.save(os.path.join(out_dir, f'pvals_{band_name}.npy'), pvals)
-    np.save(os.path.join(out_dir, f'sigmask_{band_name}.npy'), sig_mask)
-
-    plt.figure(figsize=(12,4))
-    plt.subplot(1,3,1)
-    plt.imshow(avg_conn_pre, cmap=cmap, vmin=-1, vmax=1)
-    plt.title(f'{band_name} PRE')
-    plt.colorbar()
-    plt.subplot(1,3,2)
-    plt.imshow(avg_conn_post, cmap=cmap, vmin=-1, vmax=1)
-    plt.title(f'{band_name} POST')
-    plt.colorbar()
-    plt.subplot(1,3,3)
-    plt.imshow(diff_conn, cmap=cmap, vmin=-1, vmax=1)
-    plt.title(f'{band_name} DIFF')
-    plt.colorbar()
-    plt.tight_layout()
-    plt.savefig(os.path.join(out_dir, f'connectivity_{band_name}.png'))
-    plt.show()
-
-    sig_diff_mat = np.zeros_like(diff_conn)
-    sig_diff_mat[sig_mask] = diff_conn[sig_mask]
-    plt.figure(figsize=(6,6))
-    plt.imshow(sig_diff_mat, cmap=cmap, vmin=-1, vmax=1)
-    plt.title(f'{band_name} SIGNIFICANT DIFF (FDR)')
-    plt.colorbar()
-    plt.savefig(os.path.join(out_dir, f'significant_diff_{band_name}.png'))
-    plt.show()
-
-    coords = {idx: (idx % 8, 7 - (idx // 8)) for idx in range(64)}
-    plt.figure(figsize=(6,6))
-    for i in range(64):
-        x, y = coords[i]
-        plt.scatter(x, y, c='k', s=25)
-    pairs = np.argwhere(sig_mask)
-    drawn = set()
-    for (i, j) in pairs:
-        if i < j and (i, j) not in drawn:
-            x1, y1 = coords[i]; x2, y2 = coords[j]
-            plt.plot([x1, x2], [y1, y2], color="#800000", alpha=0.6, linewidth=0.8)
-            drawn.add((i, j))
-    plt.title(f'{band_name} - significant edges (FDR)')
-    plt.axis('off')
-    plt.savefig(os.path.join(out_dir, f'electrode_mapping_{band_name}.png'))
-    plt.show()
-
-    mean_conn_pre_ts = pre_R_windows.mean(axis=(0,2,3))
-    mean_conn_post_ts = post_R_windows.mean(axis=(0,2,3))
-    plt.figure()
-    plt.plot(mean_conn_pre_ts, label='Pre mean connectivity', color='#2c2c2c')
-    plt.plot(mean_conn_post_ts, label='Post mean connectivity', color='#800000')
-    plt.xlabel('Window index')
-    plt.ylabel('Mean connectivity')
-    plt.legend()
-    plt.title(f'{band_name} - Temporal dynamics (mean over windows and channels)')
-    plt.savefig(os.path.join(out_dir, f'temporal_mean_{band_name}.png'))
-    plt.show()
-
-    avg_R_pre_ts = pre_R_windows.mean(axis=0)
-    avg_R_post_ts = post_R_windows.mean(axis=0)
-    np.save(os.path.join(out_dir, f'R_windows_{band_name}_pre.npy'), avg_R_pre_ts)
-    np.save(os.path.join(out_dir, f'R_windows_{band_name}_post.npy'), avg_R_post_ts)
-
-    fig, ax = plt.subplots(figsize=(6,6))
-    im = ax.imshow(avg_R_post_ts[0], cmap=cmap, vmin=-1, vmax=1)
-    fig.colorbar(im)
-    def update(frame):
-        im.set_array(avg_R_post_ts[frame])
-        ax.set_title(f'{band_name} Post - frame {frame}')
-        return [im]
-    ani = animation.FuncAnimation(fig, update, frames=avg_R_post_ts.shape[0], interval=200, blit=True)
-    ani_path = os.path.join(out_dir, f'connectivity_anim_{band_name}_post.mp4')
-    ani.save(ani_path, writer='ffmpeg')
-    plt.close(fig)
-
-    results_summary[band_name] = {
-        "avg_conn_pre": avg_conn_pre,
-        "avg_conn_post": avg_conn_post,
-        "diff_conn": diff_conn,
-        "pvals": pvals,
-        "sig_mask": sig_mask,
-        "R_windows_pre": avg_R_pre_ts,
-        "R_windows_post": avg_R_post_ts,
-        "mean_conn_pre_ts": mean_conn_pre_ts,
-        "mean_conn_post_ts": mean_conn_post_ts
-    }
-
-np.savez(os.path.join(out_dir, "connectivity_summary_allbands.npz"), **results_summary)
-print("All results saved in:", out_dir)
-
-import os
-import glob
-import h5py
-import numpy as np
-from scipy.signal import butter, filtfilt, hilbert
-from scipy.stats import ttest_ind
-import matplotlib.pyplot as plt
-from matplotlib import colors, animation
-
-base_dir = r'\\bigdata\Science\Med\Physiology\PTN\Yasmine\IC-stroke_connectivity\data'
-out_dir = r'\\bigdata\Science\Med\Physiology\PTN\Yasmine\IC-stroke_connectivity\ConnectivityResults'
-os.makedirs(out_dir, exist_ok=True)
-
-fs = 2000
-date_cutoff = 20250811
-
-bad_channel_indices = [64, 65, 66]
-
-bands = {
-    "delta": (1, 4),
-    "theta": (4, 8),
-    "alpha": (8, 12),
-    "beta": (12, 30),
-    "gamma": (30, 70),
-    "high_gamma": (70, 150)
-}
-
-cmap = colors.LinearSegmentedColormap.from_list("gray_red", ["#2c2c2c", "#bfbfbf", "#ffb3b3", "#800000"])
-
-def load_trial_mat(filepath):
-    with h5py.File(filepath, "r") as f:
-        signals = np.array(f["signals"])
-    return signals
-
-def bandpass(data, low, high, fs, order=4):
-    b, a = butter(order, [low/(fs/2), high/(fs/2)], btype="band")
-    return filtfilt(b, a, data, axis=-1)
-
-sess_dirs = [d for d in glob.glob(os.path.join(base_dir, "*")) if os.path.isdir(d)]
-pre_trials = []
-post_trials = []
-
-for sess in sess_dirs:
-    sess_name = os.path.basename(sess)
-    try:
-        sess_date = int(sess_name)
-    except:
-        continue
-    trial_files = glob.glob(os.path.join(sess, "trial*", "MatFiles", "*_allChannels.mat"))
-    for tf in trial_files:
-        try:
-            sigs = load_trial_mat(tf)
-        except Exception:
-            continue
-        if sigs.shape[0] < 64:
-            continue
-        X64 = sigs[:64, :]
-        if sess_date < date_cutoff:
-            pre_trials.append(X64)
-        else:
-            post_trials.append(X64)
-
-if len(pre_trials) == 0 or len(post_trials) == 0:
-    raise RuntimeError("Not enough pre or post trials found. Check base_dir and date_cutoff.")
-
-min_len = min([t.shape[1] for t in pre_trials + post_trials])
-pre_trials = [t[:, :min_len] for t in pre_trials]
-post_trials = [t[:, :min_len] for t in post_trials]
-pre_arr = np.stack(pre_trials, axis=0)
-post_arr = np.stack(post_trials, axis=0)
-n_pre, n_chan, n_time = pre_arr.shape
-n_post = post_arr.shape[0]
-
-ds_factor = 10
-fs_ds = fs // ds_factor
-win_sec = 0.2
-step_sec = 0.1
-win_ds = int(win_sec * fs_ds)
-step_ds = int(step_sec * fs_ds)
-
-def sliding_windows_env(env, win, step):
-    n_chan, n_t = env.shape
-    windows = []
-    starts = list(range(0, n_t - win + 1, step))
-    for s in starts:
-        windows.append(env[:, s:s+win])
-    return np.stack(windows, axis=0)
-
-def corr_matrix_from_env(env):
-    return np.corrcoef(env)
-
-def benjamini_hochberg(pvals_flat, alpha=0.05):
-    m = len(pvals_flat)
-    sorted_idx = np.argsort(pvals_flat)
-    sorted_p = pvals_flat[sorted_idx]
-    thresh = np.arange(1, m+1) * alpha / m
-    below = sorted_p <= thresh
-    if not np.any(below):
-        return np.zeros(m, dtype=bool)
-    max_i = np.max(np.where(below)[0])
-    crit = thresh[max_i]
-    return pvals_flat <= crit
-
-results_summary = {}
-
-for band_name, (low, high) in bands.items():
-    pre_env_trials = []
-    post_env_trials = []
-    for tr in range(n_pre):
-        X = pre_arr[tr]
-        Xf = bandpass(X, low, high, fs)
-        env = np.abs(hilbert(Xf, axis=-1))[:, ::ds_factor]
-        pre_env_trials.append(env)
-    for tr in range(n_post):
-        X = post_arr[tr]
-        Xf = bandpass(X, low, high, fs)
-        env = np.abs(hilbert(Xf, axis=-1))[:, ::ds_factor]
-        post_env_trials.append(env)
-    pre_env_trials = np.array(pre_env_trials)
-    post_env_trials = np.array(post_env_trials)
-
-    n_windows = (pre_env_trials.shape[2] - win_ds) // step_ds + 1
-    pre_R_windows = np.zeros((n_pre, n_windows, n_chan, n_chan))
-    post_R_windows = np.zeros((n_post, n_windows, n_chan, n_chan))
-
-    for t in range(n_pre):
-        win_stack = sliding_windows_env(pre_env_trials[t], win_ds, step_ds)
-        for w in range(win_stack.shape[0]):
-            pre_R_windows[t, w] = corr_matrix_from_env(win_stack[w])
-    for t in range(n_post):
-        win_stack = sliding_windows_env(post_env_trials[t], win_ds, step_ds)
-        for w in range(win_stack.shape[0]):
-            post_R_windows[t, w] = corr_matrix_from_env(win_stack[w])
-
-    mean_Rpre_per_trial = pre_R_windows.mean(axis=1)
-    mean_Rpost_per_trial = post_R_windows.mean(axis=1)
-    avg_conn_pre = mean_Rpre_per_trial.mean(axis=0)
-    avg_conn_post = mean_Rpost_per_trial.mean(axis=0)
-    diff_conn = avg_conn_post - avg_conn_pre
-
-    np.save(os.path.join(out_dir, f'R_mean_{band_name}_pre.npy'), avg_conn_pre)
-    np.save(os.path.join(out_dir, f'R_mean_{band_name}_post.npy'), avg_conn_post)
-    np.save(os.path.join(out_dir, f'R_diff_{band_name}.npy'), diff_conn)
-
-    pvals = np.ones((n_chan, n_chan))
-    for i in range(n_chan):
-        for j in range(n_chan):
-            a = mean_Rpre_per_trial[:, i, j]
-            b = mean_Rpost_per_trial[:, i, j]
-            _, p = ttest_ind(a, b, equal_var=False)
-            pvals[i, j] = p
-
-    iu = np.triu_indices(n_chan, 1)
-    pvals_flat = pvals[iu]
-    sig_flat = benjamini_hochberg(pvals_flat, alpha=0.05)
-    sig_mask = np.zeros_like(pvals, dtype=bool)
-    sig_mask[iu] = sig_flat
-    sig_mask = sig_mask | sig_mask.T
-
-    np.save(os.path.join(out_dir, f'pvals_{band_name}.npy'), pvals)
-    np.save(os.path.join(out_dir, f'sigmask_{band_name}.npy'), sig_mask)
-
-    plt.figure(figsize=(12,4))
-    plt.subplot(1,3,1)
-    plt.imshow(avg_conn_pre, cmap=cmap, vmin=-1, vmax=1)
-    plt.title(f'{band_name} PRE')
-    plt.colorbar()
-    plt.subplot(1,3,2)
-    plt.imshow(avg_conn_post, cmap=cmap, vmin=-1, vmax=1)
-    plt.title(f'{band_name} POST')
-    plt.colorbar()
-    plt.subplot(1,3,3)
-    plt.imshow(diff_conn, cmap=cmap, vmin=-1, vmax=1)
-    plt.title(f'{band_name} DIFF')
-    plt.colorbar()
-    plt.tight_layout()
-    plt.savefig(os.path.join(out_dir, f'connectivity_{band_name}.png'))
-    plt.show()
-
-    sig_diff_mat = np.zeros_like(diff_conn)
-    sig_diff_mat[sig_mask] = diff_conn[sig_mask]
-    plt.figure(figsize=(6,6))
-    plt.imshow(sig_diff_mat, cmap=cmap, vmin=-1, vmax=1)
-    plt.title(f'{band_name} SIGNIFICANT DIFF (FDR)')
-    plt.colorbar()
-    plt.savefig(os.path.join(out_dir, f'significant_diff_{band_name}.png'))
-    plt.show()
-
-    coords = {idx: (idx % 8, 7 - (idx // 8)) for idx in range(64)}
-    plt.figure(figsize=(6,6))
-    for i in range(64):
-        x, y = coords[i]
-        plt.scatter(x, y, c='k', s=25)
-    pairs = np.argwhere(sig_mask)
-    drawn = set()
-    for (i, j) in pairs:
-        if i < j and (i, j) not in drawn:
-            x1, y1 = coords[i]; x2, y2 = coords[j]
-            plt.plot([x1, x2], [y1, y2], color="#800000", alpha=0.6, linewidth=0.8)
-            drawn.add((i, j))
-    plt.title(f'{band_name} - significant edges (FDR)')
-    plt.axis('off')
-    plt.savefig(os.path.join(out_dir, f'electrode_mapping_{band_name}.png'))
-    plt.show()
-
-    mean_conn_pre_ts = pre_R_windows.mean(axis=(0,2,3))
-    mean_conn_post_ts = post_R_windows.mean(axis=(0,2,3))
-    plt.figure()
-    plt.plot(mean_conn_pre_ts, label='Pre mean connectivity', color='#2c2c2c')
-    plt.plot(mean_conn_post_ts, label='Post mean connectivity', color='#800000')
-    plt.xlabel('Window index')
-    plt.ylabel('Mean connectivity')
-    plt.legend()
-    plt.title(f'{band_name} - Temporal dynamics (mean over windows and channels)')
-    plt.savefig(os.path.join(out_dir, f'temporal_mean_{band_name}.png'))
-    plt.show()
-
-    avg_R_pre_ts = pre_R_windows.mean(axis=0)
-    avg_R_post_ts = post_R_windows.mean(axis=0)
-    np.save(os.path.join(out_dir, f'R_windows_{band_name}_pre.npy'), avg_R_pre_ts)
-    np.save(os.path.join(out_dir, f'R_windows_{band_name}_post.npy'), avg_R_post_ts)
-
-    fig, ax = plt.subplots(figsize=(6,6))
-    im = ax.imshow(avg_R_post_ts[0], cmap=cmap, vmin=-1, vmax=1)
-    fig.colorbar(im)
-    def update(frame):
-        im.set_array(avg_R_post_ts[frame])
-        ax.set_title(f'{band_name} Post - frame {frame}')
-        return [im]
-    ani = animation.FuncAnimation(fig, update, frames=avg_R_post_ts.shape[0], interval=200, blit=True)
-    ani_path = os.path.join(out_dir, f'connectivity_anim_{band_name}_post.mp4')
-    ani.save(ani_path, writer='ffmpeg')
-    plt.close(fig)
-
-    results_summary[band_name] = {
-        "avg_conn_pre": avg_conn_pre,
-        "avg_conn_post": avg_conn_post,
-        "diff_conn": diff_conn,
-        "pvals": pvals,
-        "sig_mask": sig_mask,
-        "R_windows_pre": avg_R_pre_ts,
-        "R_windows_post": avg_R_post_ts,
-        "mean_conn_pre_ts": mean_conn_pre_ts,
-        "mean_conn_post_ts": mean_conn_post_ts
-    }
-
-np.savez(os.path.join(out_dir, "connectivity_summary_allbands.npz"), **results_summary)
-print("All results saved in:", out_dir)
+            post_trials.append(X)
+
+pre_mean = np.mean(np.stack(pre_trials,axis=0),axis=0) if len(pre_trials)>0 else None
+post_mean= np.mean(np.stack(post_trials,axis=0),axis=0) if len(post_trials)>0 else None
+
+pdf_path = os.path.join(out_dir,"Connectivity_results.pdf")
+pdf = PdfPages(pdf_path)
+
+# --- electrode layout (8x8 grid)
+coords = np.array([(i//8, i%8) for i in range(64)])
+
+for bname,fr in bands.items():
+    pre_env = None
+    post_env= None
+    if pre_mean is not None:
+        Xf = bandpass(pre_mean, fs, fr, order=filt_order)
+        pre_env = np.abs(sp.hilbert(Xf,axis=-1))
+    if post_mean is not None:
+        Xf = bandpass(post_mean, fs, fr, order=filt_order)
+        post_env = np.abs(sp.hilbert(Xf,axis=-1))
+
+    if pre_env is not None:
+        pre_R = np.corrcoef(pre_env)
+    if post_env is not None:
+        post_R= np.corrcoef(post_env)
+
+    if pre_env is not None and post_env is not None:
+        diff_R = post_R - pre_R
+
+        # --- matrices
+        fig,axs = plt.subplots(1,3,figsize=(15,5))
+        im0=axs[0].imshow(pre_R,vmin=0,vmax=1,cmap=custom_cmap()); axs[0].set_title(f'{bname} PRE')
+        fig.colorbar(im0,ax=axs[0])
+        im1=axs[1].imshow(post_R,vmin=0,vmax=1,cmap=custom_cmap()); axs[1].set_title(f'{bname} POST')
+        fig.colorbar(im1,ax=axs[1])
+        im2=axs[2].imshow(diff_R,cmap=custom_cmap(),vmin=-0.5,vmax=0.5); axs[2].set_title('POST-PRE')
+        fig.colorbar(im2,ax=axs[2])
+        pdf.savefig(fig); plt.show(); plt.close(fig)
+
+        # --- node strength and significance mapping
+        strength_pre  = np.sum(pre_R,axis=1)
+        strength_post = np.sum(post_R,axis=1)
+        diff_strength = strength_post - strength_pre
+
+        tvals, pvals = ttest_ind(pre_R, post_R, axis=1, equal_var=False)
+        sig_mask = pvals < 0.05
+
+        fig,ax = plt.subplots(figsize=(6,6))
+        sc = ax.scatter(coords[:,1],-coords[:,0],c=diff_strength,
+                        cmap=custom_cmap(),s=200,edgecolor='k')
+        for i,(x,y) in enumerate(coords):
+            if sig_mask[i]:
+                ax.scatter(y,-x,c='none',s=400,edgecolor='yellow',linewidth=2)
+        ax.set_title(f'Significant node strength changes ({bname})')
+        ax.set_xticks([]); ax.set_yticks([])
+        fig.colorbar(sc,ax=ax)
+        pdf.savefig(fig); plt.show(); plt.close(fig)
+
+        # --- temporal dynamics animation
+        win_sec = 0.2
+        step_sec= 0.05
+        ds_factor=10
+        fs_ds = fs//ds_factor
+        win_ds = int(win_sec*fs_ds)
+        step_ds= int(step_sec*fs_ds)
+
+        pre_env_ds = pre_env[:,::ds_factor]
+        post_env_ds= post_env[:,::ds_factor]
+
+        n_windows = max(1,(pre_env_ds.shape[1]-win_ds)//step_ds+1)
+        pre_R_windows = np.zeros((n_windows,64,64))
+        for w in range(n_windows):
+            seg = pre_env_ds[:,w*step_ds:w*step_ds+win_ds]
+            pre_R_windows[w] = np.corrcoef(seg)
+
+        n_windows = max(1,(post_env_ds.shape[1]-win_ds)//step_ds+1)
+        post_R_windows = np.zeros((n_windows,64,64))
+        for w in range(n_windows):
+            seg = post_env_ds[:,w*step_ds:w*step_ds+win_ds]
+            post_R_windows[w] = np.corrcoef(seg)
+
+        fig,ax = plt.subplots(figsize=(6,5))
+        ims = []
+        for i in range(min(len(pre_R_windows),len(post_R_windows))):
+            im = ax.imshow(post_R_windows[i]-pre_R_windows[i],animated=True,
+                           cmap=custom_cmap(),vmin=-0.5,vmax=0.5)
+            ims.append([im])
+        ani = animation.ArtistAnimation(fig,ims,interval=300,blit=True,repeat_delay=1000)
+        ani.save(os.path.join(out_dir,f'Connectivity_evolution_{bname}.mp4'))
+        plt.show(); plt.close(fig)
+
+pdf.close()
+print("PDF saved at:", pdf_path)
