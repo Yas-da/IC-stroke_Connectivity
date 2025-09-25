@@ -1,3 +1,12 @@
+n.exe w:/Students/Yasmine/Projet/Connectivity_YD/Pre_Post_lesion_connectivity/Pre_post_lesion_connec
+tivity.py
+Traceback (most recent call last):
+  File "w:\Students\Yasmine\Projet\Connectivity_YD\Pre_Post_lesion_connectivity\Pre_post_lesion_conn
+ectivity.py", line 123, in <module>
+    pre_R_windows = np.zeros((n_pre, n_windows, n_chan, n_chan))
+ValueError: negative dimensions are not allowed
+PS W:\Students\Yasmine\Projet\Connectivity_YD> ^C
+PS W:\Students\Yasmine\Projet\Connectivity_YD>
 import os
 import glob
 import h5py
