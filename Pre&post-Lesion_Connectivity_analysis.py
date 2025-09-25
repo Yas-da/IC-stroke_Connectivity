@@ -1,19 +1,3 @@
-PS W:\Students\Yasmine\Projet\Connectivity_YD> & C:/Users/Phoenix/Anaconda3/envs/mediapipe-env/pytho
-n.exe w:/Students/Yasmine/Projet/Connectivity_YD/Pre_Post_lesion_connectivity/Pre_post_lesion_connec
-tivity.py
-Traceback (most recent call last):
-  File "w:\Students\Yasmine\Projet\Connectivity_YD\Pre_Post_lesion_connectivity\Pre_post_lesion_conn
-ectivity.py", line 97, in <module>
-    R = np.corrcoef(env_ds)
-  File "C:\Users\Phoenix\Anaconda3\envs\mediapipe-env\lib\site-packages\numpy\lib\function_base.py",
- line 2889, in corrcoef
-    c = cov(x, y, rowvar, dtype=dtype)
-  File "C:\Users\Phoenix\Anaconda3\envs\mediapipe-env\lib\site-packages\numpy\lib\function_base.py",
- line 2747, in cov
-    c = dot(X, X_T.conj())
-numpy.core._exceptions._ArrayMemoryError: Unable to allocate 717. GiB for an array with shape (31029
-4, 310294) and data type float64
-
 import os, glob, h5py
 import numpy as np
 import scipy.signal as sp
@@ -110,7 +94,7 @@ for sess in sess_dirs:
             env = np.abs(sp.hilbert(Xf,axis=-1))
             env_ds = env[:,::10]  # downsample ~200 Hz
             # Corrélation entre canaux (67x67)
-            R = np.corrcoef(env_ds)
+            R = np.corrcoef(env_ds, rowvar=True)
             all_results[bname].append(dict(R=R, condition=condition,
                                            session=sess_name, trial=dat['metadata']['trial']))
 
@@ -124,8 +108,8 @@ for bname in bands:
     Rm_post= np.mean(Rs_post,axis=0)
 
     iu = np.triu_indices(Rm_pre.shape[0],1)
-    ZA = np.array([fisher_z(R[iu]) for R in Rs_pre]).T
-    ZB = np.array([fisher_z(R[iu]) for R in Rs_post]).T
+    ZA = np.stack([fisher_z(R[iu]) for R in Rs_pre], axis=1)
+    ZB = np.stack([fisher_z(R[iu]) for R in Rs_post], axis=1)
 
     sig_mask, pvals = cluster_permutation(ZA,ZB)
 
