@@ -1,101 +1,95 @@
-# ---------- DIAGNOSTIC QUICK CHECK ----------
+import os
 import numpy as np
 import matplotlib.pyplot as plt
-import os
+from scipy.signal import hilbert
+from utils import load_signals_from_mat, bandpass_filter
 
+root = "W:/Students/Yasmine/Projet/Connectivity_YD"
+monkey = "Lilo"
+sessions = ["pre", "post"]
+bands = {
+    "delta": (1, 4),
+    "theta": (4, 8),
+    "alpha": (8, 12),
+    "beta": (13, 30),
+    "lowgamma": (30, 60),
+    "highgamma": (60, 150),
+}
+fs = 2000
+ds = 10  #downsample factor
+
+save_dir = os.path.join(root, "results", "final_check")
+mat_dir = os.path.join(save_dir, "matrices")
 diag_dir = os.path.join(save_dir, "diagnostics")
+os.makedirs(mat_dir, exist_ok=True)
 os.makedirs(diag_dir, exist_ok=True)
 
-def print_stats(name, M):
-    print(f"--- {name} ---")
-    print("shape:", M.shape)
-    print("min, 1pct, 5pct, median, mean, 95pct, 99pct, max:",
-          np.nanpercentile(M, [0,1,5,50,100*0.5,95,99,100]))
-    print("mean +/- std:", np.nanmean(M), np.nanstd(M))
-    print("nans:", np.isnan(M).sum())
-    print()
+def compute_env(sig, fmin, fmax, fs, ds=10, mode="raw"):
+    if mode == "CAR":
+        sig = sig - sig.mean(axis=0, keepdims=True)
 
-# Choose one band to inspect (e.g. beta)
-inspect_band = "beta"
-fmin, fmax = bands[inspect_band]
+    Xf = bandpass_filter(sig, fmin, fmax, fs)
+    env = np.abs(hilbert(Xf, axis=1))
+    env = env[:, ::ds]
 
-# Build envelopes for first few pre and post trials (reuse code)
-def compute_env_for_trials(arr):
-    envs = []
-    for tr in range(arr.shape[0]):
-        X = arr[tr]  # (64, T)
-        Xf = bandpass_filter(X, fmin, fmax, fs)
-        env = np.abs(hilbert(Xf, axis=1))
-        envs.append(env)
-    return envs
+    if mode == "demean":
+        global_mean = env.mean(axis=0, keepdims=True)
+        env = env - global_mean
 
-pre_envs = compute_env_for_trials(pre_arr)
-post_envs = compute_env_for_trials(post_arr)
+    return env
 
-print("n pre trials, n post trials:", len(pre_envs), len(post_envs))
-# sample one trial
-sample_pre = pre_envs[0]
-sample_post = post_envs[0]
-print("sample_env shapes (channels, time):", sample_pre.shape, sample_post.shape)
+def compute_corr(env):
+    return np.corrcoef(env)
 
-# downsample factor used in pipeline
-ds = 10
-sample_pre_ds = sample_pre[:, ::ds]
-sample_post_ds = sample_post[:, ::ds]
-print("after ds:", sample_pre_ds.shape)
+def plot_heatmap(R, title, path):
+    plt.figure(figsize=(6, 5))
+    plt.imshow(R, vmin=-1, vmax=1, cmap="bwr")
+    plt.colorbar()
+    plt.title(title)
+    plt.tight_layout()
+    plt.savefig(path, dpi=200)
+    plt.close()
 
-# 1) Check variance across channels (is any channel zero / tiny variance?)
-var_per_channel_pre = np.var(sample_pre_ds, axis=1)
-var_per_channel_post = np.var(sample_post_ds, axis=1)
-print_stats("var_per_channel_pre (example trial)", var_per_channel_pre)
-print_stats("var_per_channel_post (example trial)", var_per_channel_post)
+def print_stats(name, arr, f):
+    stats = np.nanpercentile(arr, [0,1,5,50,95,99,100])
+    line = f"{name}: min={stats[0]:.3f}, p1={stats[1]:.3f}, p5={stats[2]:.3f}, median={stats[3]:.3f}, p95={stats[4]:.3f}, p99={stats[5]:.3f}, max={stats[6]:.3f}, mean={np.nanmean(arr):.3f}, std={np.nanstd(arr):.3f}\n"
+    f.write(line)
+    print(line)
 
-# 2) Are envelopes almost identical across channels? compute pairwise channel differences
-mean_pairwise_corr_pre = np.mean([np.corrcoef(sample_pre_ds)[i,j] 
-                                  for i in range(sample_pre_ds.shape[0]) for j in range(i+1, sample_pre_ds.shape[0])])
-mean_pairwise_corr_post = np.mean([np.corrcoef(sample_post_ds)[i,j] 
-                                   for i in range(sample_post_ds.shape[0]) for j in range(i+1, sample_post_ds.shape[0])])
-print("Mean pairwise corr (pre example trial):", mean_pairwise_corr_pre)
-print("Mean pairwise corr (post example trial):", mean_pairwise_corr_post)
+with open(os.path.join(diag_dir, "stats.txt"), "w") as f:
+    for sess in sessions:
+        arr = load_signals_from_mat(root, monkey, sess)  # (n_trials, n_channels, T)
+        print(f"Session {sess}, shape {arr.shape}")
 
-# 3) Distribution of corr values for the trial
-R_pre = np.corrcoef(sample_pre_ds)
-R_post = np.corrcoef(sample_post_ds)
-print_stats("R_pre (example trial)", R_pre.flatten())
-print_stats("R_post (example trial)", R_post.flatten())
+        for band, (fmin, fmax) in bands.items():
+            for mode in ["raw", "CAR", "demean"]:
+                all_corrs = []
 
-# 4) Plot a few envelopes to visual check (first 6 channels)
-plt.figure(figsize=(10,6))
-tvec = np.arange(sample_pre_ds.shape[1]) * (ds / fs)
-for ch in range(6):
-    plt.plot(tvec, sample_pre_ds[ch], label=f"ch{ch+1}", alpha=0.8)
-plt.title(f"Envelopes pre trial (first 6 channels) - {inspect_band}")
-plt.xlabel("Time (s)")
-plt.savefig(os.path.join(diag_dir, f"env_pre_first6_{inspect_band}.png"), dpi=200)
-plt.close()
+                for tr in range(arr.shape[0]):
+                    sig = arr[tr]  
+                    env = compute_env(sig, fmin, fmax, fs, ds, mode=mode)
+                    R = compute_corr(env)
+                    all_corrs.append(R)
 
-plt.figure(figsize=(10,6))
-for ch in range(6):
-    plt.plot(tvec, sample_post_ds[ch], label=f"ch{ch+1}", alpha=0.8)
-plt.title(f"Envelopes post trial (first 6 channels) - {inspect_band}")
-plt.xlabel("Time (s)")
-plt.savefig(os.path.join(diag_dir, f"env_post_first6_{inspect_band}.png"), dpi=200)
-plt.close()
+                all_corrs = np.array(all_corrs)  #(n_trials, 64, 64)
+                mean_R = np.nanmean(all_corrs, axis=0)
 
-# 5) Check if env signals share large common mean across channels (global component)
-global_pre = np.mean(sample_pre_ds, axis=0)
-global_post = np.mean(sample_post_ds, axis=0)
-print("Global signal (pre) mean/std:", np.mean(global_pre), np.std(global_pre))
-print("Global signal (post) mean/std:", np.mean(global_post), np.std(global_post))
+                #save matrix
+                np.save(os.path.join(mat_dir, f"{sess}_{band}_{mode}.npy"), mean_R)
+                plot_heatmap(mean_R, f"{sess} {band} {mode}", os.path.join(mat_dir, f"{sess}_{band}_{mode}.png"))
 
-# correlation of each channel with global
-corr_with_global_pre = [np.corrcoef(sample_pre_ds[ch], global_pre)[0,1] for ch in range(sample_pre_ds.shape[0])]
-corr_with_global_post = [np.corrcoef(sample_post_ds[ch], global_post)[0,1] for ch in range(sample_post_ds.shape[0])]
-print_stats("corr_with_global_pre", np.array(corr_with_global_pre))
-print_stats("corr_with_global_post", np.array(corr_with_global_post))
+                #stats
+                vals = mean_R[np.triu_indices_from(mean_R, 1)]
+                print_stats(f"{sess}-{band}-{mode}", vals, f)
 
-# Save arrays for inspection
-np.save(os.path.join(diag_dir, f"R_pre_example_{inspect_band}.npy"), R_pre)
-np.save(os.path.join(diag_dir, f"R_post_example_{inspect_band}.npy"), R_post)
+                #extra diag: histogram
+                plt.figure()
+                plt.hist(vals, bins=50, color="gray", alpha=0.7)
+                plt.title(f"Corr distribution {sess} {band} {mode}")
+                plt.xlabel("corr")
+                plt.ylabel("count")
+                plt.tight_layout()
+                plt.savefig(os.path.join(diag_dir, f"hist_{sess}_{band}_{mode}.png"), dpi=200)
+                plt.close()
 
-print("Diagnostics saved to:", diag_dir)
+print("Results saved in:", save_dir)
